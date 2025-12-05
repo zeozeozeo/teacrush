@@ -29,3 +29,9 @@ HEVC is quite optimized on the CPU and even more so on the GPU, with minute long
 So if you have time, **it is always better to use VP9**. Otherwise go with H264 for compatibility or HEVC for quality. If your VP9 encoder gets stuck at 0% on the analysis stage, that is okay, it will get unstuck after a bit, you just need to wait.
 
 GPU encoding will always be worse than software (CPU) encoding in quality, since none of the major GPU encoders support two-pass encoding (and generally lack in quality compared to software encoders). **You should only use GPU encoding if you have generous target size and a long video.**
+
+## Example
+
+Almost 2 minutes of video and audio compressed down to just 9.5MB with VP9 and libopus:
+
+[1205_compressed.webm](https://github.com/user-attachments/assets/72f8576b-21f1-490b-a769-cfdeb4c68e78)
