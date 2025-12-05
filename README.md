@@ -2,6 +2,8 @@
 
 A [Bubble Tea](https://github.com/charmbracelet/bubbletea) TUI app for compressing videos down to a certain size. Basically like [8mb.video](https://8mb.video/) but locally.
 
+https://github.com/user-attachments/assets/dbc959b8-cb32-4400-8369-b703c0f47ad0
+
 You need [FFmpeg](https://www.ffmpeg.org/download.html) installed for this to work.
 
 > [!NOTE]
