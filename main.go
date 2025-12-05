@@ -71,7 +71,7 @@ type codecInfo struct {
 
 var encoderMap = map[hwType][]codecInfo{
 	hwCPU: {
-		{"AV1 (Slowest, Best Quality)", "libaom-av1", ".mp4"},
+		{"AV1 (Slowest, Best Quality)", "libaom-av1", ".webm"},
 		{"VP9 (Medium Quality)", "libvpx-vp9", ".webm"},
 		{"H.264 (Fast)", "libx264", ".mp4"},
 		{"H.265 (High Efficiency)", "libx265", ".mp4"},
@@ -79,18 +79,18 @@ var encoderMap = map[hwType][]codecInfo{
 	hwNVIDIA: {
 		{"H.264 (NVENC)", "h264_nvenc", ".mp4"},
 		{"HEVC (NVENC)", "hevc_nvenc", ".mp4"},
-		{"AV1 (NVENC - RTX 40xx+)", "av1_nvenc", ".mp4"},
+		{"AV1 (NVENC - RTX 40xx+)", "av1_nvenc", ".webm"},
 	},
 	hwAMD: {
 		{"H.264 (AMF)", "h264_amf", ".mp4"},
 		{"HEVC (AMF)", "hevc_amf", ".mp4"},
-		{"AV1 (AMF - RX 7000+)", "av1_amf", ".mp4"},
+		{"AV1 (AMF - RX 7000+)", "av1_amf", ".webm"},
 	},
 	hwINTEL: {
 		{"H.264 (QSV)", "h264_qsv", ".mp4"},
 		{"HEVC (QSV)", "hevc_qsv", ".mp4"},
 		{"VP9 (QSV)", "vp9_qsv", ".webm"},
-		{"AV1 (QSV - Arc GPU)", "av1_qsv", ".mp4"},
+		{"AV1 (QSV - Arc GPU)", "av1_qsv", ".webm"},
 	},
 }
 
