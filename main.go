@@ -71,26 +71,26 @@ type codecInfo struct {
 
 var encoderMap = map[hwType][]codecInfo{
 	hwCPU: {
-		{"VP9 (Use for Discord)", "libvpx-vp9", ".webm"},
-		{"H.264 (Universal)", "libx264", ".mp4"},
+		{"AV1 (Slowest, Best Quality)", "libaom-av1", ".mp4"},
+		{"VP9 (Medium Quality)", "libvpx-vp9", ".webm"},
+		{"H.264 (Fast)", "libx264", ".mp4"},
 		{"H.265 (High Efficiency)", "libx265", ".mp4"},
-		{"AV1 (High Quality)", "libaom-av1", ".mkv"},
 	},
 	hwNVIDIA: {
 		{"H.264 (NVENC)", "h264_nvenc", ".mp4"},
 		{"HEVC (NVENC)", "hevc_nvenc", ".mp4"},
-		{"AV1 (NVENC - RTX 40xx+)", "av1_nvenc", ".mkv"},
+		{"AV1 (NVENC - RTX 40xx+)", "av1_nvenc", ".mp4"},
 	},
 	hwAMD: {
 		{"H.264 (AMF)", "h264_amf", ".mp4"},
 		{"HEVC (AMF)", "hevc_amf", ".mp4"},
-		{"AV1 (AMF - RX 7000+)", "av1_amf", ".mkv"},
+		{"AV1 (AMF - RX 7000+)", "av1_amf", ".mp4"},
 	},
 	hwINTEL: {
 		{"H.264 (QSV)", "h264_qsv", ".mp4"},
 		{"HEVC (QSV)", "hevc_qsv", ".mp4"},
 		{"VP9 (QSV)", "vp9_qsv", ".webm"},
-		{"AV1 (QSV - Arc GPU)", "av1_qsv", ".mkv"},
+		{"AV1 (QSV - Arc GPU)", "av1_qsv", ".mp4"},
 	},
 }
 

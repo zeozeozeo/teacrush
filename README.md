@@ -17,21 +17,3 @@ Install [Go](https://go.dev/dl/) if you haven't already.
 ```console
 go install github.com/zeozeozeo/teacrush@latest
 ```
-
-## Codec caution
-
-H264 is a good fit for simple/static videos. Any potato should be able to encode it fast enough. But if you're compressing gameplay or such, you might want to look into better options.
-
-VP9 is *excruciatingly* slow to encode but widely supported and has way better quality than both HEVC and H264. Firefox will play it, but your CPU will not have a great time encoding it.
-
-HEVC is quite optimized on the CPU and even more so on the GPU, with minute long videos taking seconds to encode. However, most browsers will not play it (except Electon apps, like Discord, but remember that Discord can also be used in a browser).
-
-So if you have time, **it is always better to use VP9**. Otherwise go with H264 for compatibility or HEVC for quality. If your VP9 encoder gets stuck at 0% on the analysis stage, that is okay, it will get unstuck after a bit, you just need to wait.
-
-GPU encoding will always be worse than software (CPU) encoding in quality, since none of the major GPU encoders support two-pass encoding (and generally lack in quality compared to software encoders). **You should only use GPU encoding if you have generous target size and a long video.**
-
-## Example
-
-Almost 2 minutes of video and audio compressed down to just 9.5MB with VP9 and libopus:
-
-[1205_compressed.webm](https://github.com/user-attachments/assets/72f8576b-21f1-490b-a769-cfdeb4c68e78)
