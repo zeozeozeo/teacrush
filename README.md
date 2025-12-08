@@ -17,3 +17,18 @@ Install [Go](https://go.dev/dl/) if you haven't already.
 ```console
 go install github.com/zeozeozeo/teacrush@latest
 ```
+
+## Usage
+
+```
+$ teacrush -h
+Teacrush
+
+Usage:
+teacrush [input_file] [flags]
+
+Flags:
+-gif                Encode to GIF
+-trim [start] [end] Trim video (e.g. -trim 00:01:00 00:02:00 or -trim 1s 5s)
+-h, --help, ?       Show this help message
+```

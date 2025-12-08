@@ -119,6 +119,8 @@ type model struct {
 	targetSizeMB  float64
 	targetRes     string
 	targetFPS     string // empty = real
+	trimStart     string
+	trimEnd       string
 	selectedHW    int
 	selectedCodec int
 
@@ -150,10 +152,24 @@ func initialModel(gifMode bool) model {
 	}
 
 	args := os.Args[1:]
-	for _, arg := range args {
+	skip := 0
+	for i, arg := range args {
+		if skip > 0 {
+			skip--
+			continue
+		}
 		if arg == "-gif" {
 			continue
 		}
+		if arg == "-trim" {
+			if i+2 < len(args) {
+				m.trimStart = args[i+1]
+				m.trimEnd = args[i+2]
+				skip = 2
+				continue
+			}
+		}
+
 		clean := cleanPath(arg)
 		if _, err := os.Stat(clean); err == nil {
 			m.filePath = clean
@@ -257,7 +273,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				codecCfg := codecInfo{Name: "GIF", Ext: ".gif"}
 				return m, tea.Batch(
 					m.spinner.Tick,
-					startEncoding(m.filePath, m.targetSizeMB, m.targetRes, m.targetFPS, hwCPU, codecCfg, m.progressChan, true),
+					startEncoding(m.filePath, m.targetSizeMB, m.targetRes, m.targetFPS, m.trimStart, m.trimEnd, hwCPU, codecCfg, m.progressChan, true),
 					waitForProgress(m.progressChan),
 				)
 			}
@@ -298,7 +314,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				return m, tea.Batch(
 					m.spinner.Tick,
-					startEncoding(m.filePath, m.targetSizeMB, m.targetRes, "", hw, codecCfg, m.progressChan, false),
+					startEncoding(m.filePath, m.targetSizeMB, m.targetRes, "", m.trimStart, m.trimEnd, hw, codecCfg, m.progressChan, false),
 					waitForProgress(m.progressChan),
 				)
 			}
@@ -343,6 +359,9 @@ func (m model) View() string {
 	if m.isGifMode {
 		s.WriteString(" (GIF Mode)")
 	}
+	if m.trimStart != "" {
+		s.WriteString(fmt.Sprintf(" [Trim: %s-%s]", m.trimStart, m.trimEnd))
+	}
 	s.WriteString("\n\n")
 
 	if m.err != nil {
@@ -359,7 +378,11 @@ func (m model) View() string {
 	case stateInputSize:
 		s.WriteString(stepStyle.Render("2. Target Size"))
 		s.WriteString(fmt.Sprintf("\nFile: %s", filepath.Base(m.filePath)))
-		s.WriteString("\nMax MB (Audio+Video):\n\n")
+		if m.isGifMode {
+			s.WriteString("\nMax MB (GIF), Empty=dontcare:\n\n")
+		} else {
+			s.WriteString("\nMax MB (Audio+Video), Empty=dontcare:\n\n")
+		}
 		s.WriteString(m.textInput.View())
 
 	case stateInputRes:
@@ -456,7 +479,20 @@ func buildScaleFilter(input string) string {
 	return ""
 }
 
-func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput string, hw hwType, codecCfg codecInfo, progressChan chan progressMsg, isGif bool) tea.Cmd {
+func parseDuration(s string) float64 {
+	s = strings.TrimSuffix(s, "s")
+	parts := strings.Split(s, ":")
+	sec := 0.0
+	mul := 1.0
+	for i := len(parts) - 1; i >= 0; i-- {
+		v, _ := strconv.ParseFloat(parts[i], 64)
+		sec += v * mul
+		mul *= 60
+	}
+	return sec
+}
+
+func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput string, trimStart, trimEnd string, hw hwType, codecCfg codecInfo, progressChan chan progressMsg, isGif bool) tea.Cmd {
 	return func() tea.Msg {
 		defer close(progressChan)
 
@@ -467,6 +503,14 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 		}
 
 		duration, _ := strconv.ParseFloat(info.Format.Duration, 64)
+
+		if trimStart != "" && trimEnd != "" {
+			s := parseDuration(trimStart)
+			e := parseDuration(trimEnd)
+			if e > s {
+				duration = e - s
+			}
+		}
 
 		dir := filepath.Dir(inputFile)
 		name := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
@@ -481,6 +525,11 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 		vfFilters = append(vfFilters, "mpdecimate") // remove duplicate frames
 
 		vfString := strings.Join(vfFilters, ",")
+
+		trimArgs := []string{}
+		if trimStart != "" && trimEnd != "" {
+			trimArgs = []string{"-ss", trimStart, "-to", trimEnd}
+		}
 
 		// gif mode
 		if isGif {
@@ -506,7 +555,10 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 				palFilter += ","
 			}
 			palFilter += "palettegen"
-			palArgs := []string{"-y", "-i", inputFile, "-vf", palFilter, paletteFile}
+			palArgs := []string{"-y"}
+			palArgs = append(palArgs, trimArgs...)
+			palArgs = append(palArgs, "-i", inputFile, "-vf", palFilter, paletteFile)
+
 			if err := runFFmpeg(palArgs, progressChan, duration, "GIF Palette"); err != nil {
 				return workDoneMsg{err: err}
 			}
@@ -518,11 +570,13 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 				filterComplex = "[0:v]fifo[x];[x][1:v]paletteuse"
 			}
 
-			encArgs := []string{
-				"-y", "-i", inputFile, "-i", paletteFile,
+			encArgs := []string{"-y"}
+			encArgs = append(encArgs, trimArgs...)
+			encArgs = append(encArgs,
+				"-i", inputFile, "-i", paletteFile,
 				"-lavfi", filterComplex,
 				outputFile,
-			}
+			)
 
 			if err := runFFmpeg(encArgs, progressChan, duration, "GIF Encode"); err != nil {
 				return workDoneMsg{err: err}
@@ -591,7 +645,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 			}
 
 			// pass 1
-			p1 := []string{"-y", "-i", inputFile, "-c:v", codecCfg.FFmpegLib, "-b:v", fmt.Sprintf("%dk", videoKBit), "-pass", "1", "-passlogfile", passLog, "-an"}
+			p1 := []string{"-y"}
+			p1 = append(p1, trimArgs...)
+			p1 = append(p1, "-i", inputFile, "-c:v", codecCfg.FFmpegLib, "-b:v", fmt.Sprintf("%dk", videoKBit), "-pass", "1", "-passlogfile", passLog, "-an")
 			p1 = append(p1, filterArgs...)
 			p1 = append(p1, extraArgs...)
 			p1 = append(p1, "-f", "null", nullOut)
@@ -601,7 +657,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 			}
 
 			// pass 2
-			p2 := []string{"-y", "-i", inputFile, "-c:v", codecCfg.FFmpegLib, "-b:v", fmt.Sprintf("%dk", videoKBit), "-pass", "2", "-passlogfile", passLog}
+			p2 := []string{"-y"}
+			p2 = append(p2, trimArgs...)
+			p2 = append(p2, "-i", inputFile, "-c:v", codecCfg.FFmpegLib, "-b:v", fmt.Sprintf("%dk", videoKBit), "-pass", "2", "-passlogfile", passLog)
 			p2 = append(p2, filterArgs...)
 			p2 = append(p2, extraArgs...)
 			p2 = append(p2, audioArgs...)
@@ -624,15 +682,15 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 				extraArgs = []string{"-preset", "veryslow"}
 			}
 
-			cmdArgs := []string{
-				"-y",
-				"-hwaccel", "auto",
+			cmdArgs := []string{"-y", "-hwaccel", "auto"}
+			cmdArgs = append(cmdArgs, trimArgs...)
+			cmdArgs = append(cmdArgs,
 				"-i", inputFile,
 				"-c:v", codecCfg.FFmpegLib,
 				"-b:v", fmt.Sprintf("%dk", videoKBit),
 				"-maxrate", fmt.Sprintf("%dk", videoKBit),
 				"-bufsize", fmt.Sprintf("%dk", videoKBit*2),
-			}
+			)
 			cmdArgs = append(cmdArgs, filterArgs...)
 			cmdArgs = append(cmdArgs, extraArgs...)
 			cmdArgs = append(cmdArgs, audioArgs...)
@@ -767,8 +825,9 @@ func printHelp() {
 	fmt.Println("\nUsage:")
 	fmt.Println("  teacrush [input_file] [flags]")
 	fmt.Println("\nFlags:")
-	fmt.Println("  -gif           Encode to GIF")
-	fmt.Println("  -h, --help, ?  Show this help message")
+	fmt.Println("  -gif                Encode to GIF")
+	fmt.Println("  -trim [start] [end] Trim video (e.g. -trim 00:01:00 00:02:00 or -trim 1s 5s)")
+	fmt.Println("  -h, --help, ?       Show this help message")
 }
 
 func main() {
