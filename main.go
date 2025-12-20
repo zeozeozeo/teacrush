@@ -53,7 +53,7 @@ const (
 	stateInputFile state = iota
 	stateInputSize
 	stateInputRes
-	stateGifFPS
+	stateFPS
 	stateSelectHW
 	stateSelectCodec
 	stateSelectCRF
@@ -119,15 +119,24 @@ type workDoneMsg struct {
 	err        error
 }
 
+type outputMode int
+
+const (
+	modeVideo outputMode = iota
+	modeGIF
+	modeAPNG
+	modeAVIF
+)
+
 type model struct {
 	state     state
 	textInput textinput.Model
 	spinner   spinner.Model
 	err       error
 
-	isGifMode bool
-	verbose   bool
-	customOut string
+	outputMode outputMode
+	verbose    bool
+	customOut  string
 
 	filePath      string
 	originalSize  float64
@@ -152,7 +161,7 @@ type model struct {
 	suggestionIdx int
 }
 
-func initialModel(gifMode bool) model {
+func initialModel(mode outputMode) model {
 	ti := textinput.New()
 	ti.CharLimit = 1000
 	ti.Width = 60
@@ -168,7 +177,7 @@ func initialModel(gifMode bool) model {
 		selectedHW:   0,
 		crfLevel:     5, // medium/balanced quality
 		qualityLevel: 2, // balanced speed
-		isGifMode:    gifMode,
+		outputMode:   mode,
 	}
 
 	args := os.Args[1:]
@@ -178,7 +187,7 @@ func initialModel(gifMode bool) model {
 			skip--
 			continue
 		}
-		if arg == "-gif" {
+		if arg == "-gif" || arg == "-apng" || arg == "-avif" {
 			continue
 		}
 		if arg == "-v" {
@@ -290,30 +299,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Type == tea.KeyEnter {
 				m.targetRes = m.textInput.Value()
 				m.textInput.Reset()
+				m.state = stateFPS
+				m.textInput.Placeholder = "Enter=Original, or e.g. 30, 60"
+				m.err = nil
+			}
 
-				if m.isGifMode {
-					m.state = stateGifFPS
-					m.textInput.Placeholder = "Enter=Original, or e.g. 15"
+		case stateFPS:
+			if msg.Type == tea.KeyEnter {
+				m.targetFPS = m.textInput.Value()
+				m.textInput.Blur()
+
+				if m.outputMode == modeGIF || m.outputMode == modeAPNG {
+					m.state = stateProcessing
+					m.progressChan = make(chan progressMsg)
+					var codecCfg codecInfo
+					switch m.outputMode {
+					case modeGIF:
+						codecCfg = codecInfo{Name: "GIF", Ext: ".gif"}
+					case modeAPNG:
+						codecCfg = codecInfo{Name: "APNG", Ext: ".png"}
+					}
+
+					return m, tea.Batch(
+						m.spinner.Tick,
+						startEncoding(m.filePath, m.targetSizeMB, m.targetRes, m.targetFPS, m.trimStart, m.trimEnd, m.customOut, hwCPU, codecCfg, m.progressChan, m.outputMode, m.qualityLevel, m.crfLevel),
+						waitForProgress(m.progressChan),
+					)
 				} else {
 					m.state = stateSelectHW
 					m.textInput.Blur()
 				}
 				m.err = nil
-			}
-
-		case stateGifFPS:
-			if msg.Type == tea.KeyEnter {
-				m.targetFPS = m.textInput.Value()
-				m.textInput.Blur()
-
-				m.state = stateProcessing
-				m.progressChan = make(chan progressMsg)
-				codecCfg := codecInfo{Name: "GIF", Ext: ".gif"}
-				return m, tea.Batch(
-					m.spinner.Tick,
-					startEncoding(m.filePath, m.targetSizeMB, m.targetRes, m.targetFPS, m.trimStart, m.trimEnd, m.customOut, hwCPU, codecCfg, m.progressChan, true, m.qualityLevel, m.crfLevel),
-					waitForProgress(m.progressChan),
-				)
 			}
 
 		case stateSelectHW:
@@ -334,6 +350,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stateSelectCodec:
 			hw := hardwareOptions[m.selectedHW]
 			options := encoderMap[hw]
+			if m.outputMode == modeAVIF {
+				var av1Options []codecInfo
+				for _, c := range options {
+					if strings.Contains(c.FFmpegLib, "av1") {
+						av1Options = append(av1Options, c)
+					}
+				}
+				options = av1Options
+			}
 
 			switch msg.String() {
 			case "up", "k":
@@ -345,6 +370,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedCodec++
 				}
 			case "enter":
+				if len(options) == 0 {
+					return m, nil
+				}
 				if m.targetSizeMB <= 0 {
 					m.state = stateSelectCRF
 				} else {
@@ -379,6 +407,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter":
 				hw := hardwareOptions[m.selectedHW]
 				options := encoderMap[hw]
+				if m.outputMode == modeAVIF {
+					var av1Options []codecInfo
+					for _, c := range options {
+						if strings.Contains(c.FFmpegLib, "av1") {
+							av1Options = append(av1Options, c)
+						}
+					}
+					options = av1Options
+				}
 				codecCfg := options[m.selectedCodec]
 
 				m.state = stateProcessing
@@ -386,7 +423,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				return m, tea.Batch(
 					m.spinner.Tick,
-					startEncoding(m.filePath, m.targetSizeMB, m.targetRes, "", m.trimStart, m.trimEnd, m.customOut, hw, codecCfg, m.progressChan, false, m.qualityLevel, m.crfLevel),
+					startEncoding(m.filePath, m.targetSizeMB, m.targetRes, m.targetFPS, m.trimStart, m.trimEnd, m.customOut, hw, codecCfg, m.progressChan, m.outputMode, m.qualityLevel, m.crfLevel),
 					waitForProgress(m.progressChan),
 				)
 			}
@@ -420,7 +457,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.state == stateInputFile || m.state == stateInputSize || m.state == stateInputRes || m.state == stateGifFPS {
+	if m.state == stateInputFile || m.state == stateInputSize || m.state == stateInputRes || m.state == stateFPS {
 		m.textInput, cmd = m.textInput.Update(msg)
 	}
 
@@ -430,10 +467,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	var s strings.Builder
 
-	s.WriteString(titleStyle.Render(" Teacrush "))
-	if m.isGifMode {
-		s.WriteString(" (GIF Mode)")
+	title := " Teacrush "
+	switch m.outputMode {
+	case modeGIF:
+		title += "(GIF Mode)"
+	case modeAPNG:
+		title += "(APNG Mode)"
+	case modeAVIF:
+		title += "(AVIF Mode)"
 	}
+	s.WriteString(titleStyle.Render(title))
 	if m.trimStart != "" {
 		s.WriteString(fmt.Sprintf(" [Trim: %s-%s]", m.trimStart, m.trimEnd))
 	}
@@ -453,9 +496,14 @@ func (m model) View() string {
 	case stateInputSize:
 		s.WriteString(stepStyle.Render("2. Target Size"))
 		s.WriteString(fmt.Sprintf("\nFile: %s", filepath.Base(m.filePath)))
-		if m.isGifMode {
+		switch m.outputMode {
+		case modeGIF:
 			s.WriteString("\nMax MB (GIF), Empty=CRF:\n\n")
-		} else {
+		case modeAPNG:
+			s.WriteString("\nMax MB (APNG), Empty=CRF:\n\n")
+		case modeAVIF:
+			s.WriteString("\nMax MB (AVIF), Empty=CRF:\n\n")
+		default:
 			s.WriteString("\nMax MB (Audio+Video), Empty=CRF:\n\n")
 		}
 		s.WriteString(m.textInput.View())
@@ -467,14 +515,15 @@ func (m model) View() string {
 		s.WriteString("\nType '1280x720' for fixed size.\n\n")
 		s.WriteString(m.textInput.View())
 
-	case stateGifFPS:
-		s.WriteString(stepStyle.Render("4. GIF Framerate"))
+	case stateFPS:
+		stepTitle := "4. Target Framerate (FPS)"
+		s.WriteString(stepStyle.Render(stepTitle))
 		s.WriteString("\nLeave empty for original FPS.")
-		s.WriteString("\nEnter a number (e.g. 15) to set an FPS limit.\n\n")
+		s.WriteString("\nEnter a number (e.g. 30, 60) to set FPS.\n\n")
 		s.WriteString(m.textInput.View())
 
 	case stateSelectHW:
-		s.WriteString(stepStyle.Render("4. Select Hardware"))
+		s.WriteString(stepStyle.Render("5. Select Hardware"))
 		if m.targetSizeMB > 0 {
 			s.WriteString(fmt.Sprintf("\nTarget: %.2f MB\n\n", m.targetSizeMB))
 		} else {
@@ -491,11 +540,24 @@ func (m model) View() string {
 		}
 
 	case stateSelectCodec:
-		s.WriteString(stepStyle.Render("5. Select Codec"))
+		s.WriteString(stepStyle.Render("6. Select Codec"))
+		if m.outputMode == modeAVIF {
+			s.WriteString(" (AV1 only)")
+		}
 		hw := hardwareOptions[m.selectedHW]
 		s.WriteString(fmt.Sprintf("\nHardware: %s\n\n", hw))
 
 		options := encoderMap[hw]
+		if m.outputMode == modeAVIF {
+			var av1Options []codecInfo
+			for _, c := range options {
+				if strings.Contains(c.FFmpegLib, "av1") {
+					av1Options = append(av1Options, c)
+				}
+			}
+			options = av1Options
+		}
+
 		for i, c := range options {
 			cursor := "  "
 			style := itemStyle
@@ -507,7 +569,7 @@ func (m model) View() string {
 		}
 
 	case stateSelectCRF:
-		s.WriteString(stepStyle.Render("6. Quality (CRF)"))
+		s.WriteString(stepStyle.Render("7. Quality (CRF)"))
 		s.WriteString("\nAdjust the Constant Rate Factor (CRF).")
 		s.WriteString("\n\n")
 
@@ -528,9 +590,9 @@ func (m model) View() string {
 		s.WriteString("\nPress Enter to continue.")
 
 	case stateSelectQuality:
-		stepNum := "6"
+		stepNum := "7"
 		if m.targetSizeMB <= 0 {
-			stepNum = "7"
+			stepNum = "8"
 		}
 		s.WriteString(stepStyle.Render(stepNum + ". Select Encoding Speed"))
 		s.WriteString("\nUse Left/Right to adjust.")
@@ -556,8 +618,13 @@ func (m model) View() string {
 
 	case stateProcessing:
 		mode := "Compressing"
-		if m.isGifMode {
+		switch m.outputMode {
+		case modeGIF:
 			mode = "Creating GIF"
+		case modeAPNG:
+			mode = "Creating APNG"
+		case modeAVIF:
+			mode = "Creating AVIF"
 		}
 		s.WriteString(stepStyle.Render(mode + "..."))
 		s.WriteString("\n\n")
@@ -624,7 +691,7 @@ func parseDuration(s string) float64 {
 	return sec
 }
 
-func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput string, trimStart, trimEnd, customOut string, hw hwType, codecCfg codecInfo, progressChan chan progressMsg, isGif bool, quality int, crfSlider int) tea.Cmd {
+func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput string, trimStart, trimEnd, customOut string, hw hwType, codecCfg codecInfo, progressChan chan progressMsg, mode outputMode, quality int, crfSlider int) tea.Cmd {
 	return func() tea.Msg {
 		defer close(progressChan)
 
@@ -646,15 +713,30 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 
 		var outputFile string
 		var formatArgs []string
+		outputExt := codecCfg.Ext
+		switch mode {
+		case modeAPNG:
+			outputExt = ".png"
+		case modeAVIF:
+			outputExt = ".avif"
+		}
 
 		if customOut != "" {
 			outputFile = customOut
-			fmtFlag := strings.TrimPrefix(codecCfg.Ext, ".")
+			var fmtFlag string
+			switch mode {
+			case modeAVIF:
+				fmtFlag = "avif"
+			case modeAPNG:
+				fmtFlag = "apng"
+			default:
+				fmtFlag = strings.TrimPrefix(outputExt, ".")
+			}
 			formatArgs = []string{"-f", fmtFlag}
 		} else {
 			dir := filepath.Dir(inputFile)
 			name := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
-			outputFile = filepath.Join(dir, fmt.Sprintf("%s_compressed%s", name, codecCfg.Ext))
+			outputFile = filepath.Join(dir, fmt.Sprintf("%s_compressed%s", name, outputExt))
 		}
 
 		// allow streaming
@@ -669,6 +751,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 			vfFilters = append(vfFilters, scaleFilter)
 		}
 		vfFilters = append(vfFilters, "mpdecimate") // remove duplicate frames
+		if fpsInput != "" {
+			vfFilters = append(vfFilters, fmt.Sprintf("fps=%s", fpsInput))
+		}
 
 		vfString := strings.Join(vfFilters, ",")
 
@@ -677,8 +762,8 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 			trimArgs = []string{"-ss", trimStart, "-to", trimEnd}
 		}
 
-		// gif mode
-		if isGif {
+		switch mode {
+		case modeGIF:
 			gifVf := []string{}
 			if scaleFilter != "" {
 				gifVf = append(gifVf, scaleFilter)
@@ -733,9 +818,36 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 			}
 
 			return finishWork(outputFile)
+
+		case modeAPNG:
+			progressChan <- progressMsg{line: "Encoding APNG...", progress: 0.1}
+			apngVf := []string{}
+			if scaleFilter != "" {
+				apngVf = append(apngVf, scaleFilter)
+			}
+			apngVf = append(apngVf, "mpdecimate")
+			if fpsInput != "" {
+				apngVf = append(apngVf, fmt.Sprintf("fps=%s", fpsInput))
+			}
+			vfString := strings.Join(apngVf, ",")
+			encArgs := []string{"-y"}
+			encArgs = append(encArgs, trimArgs...)
+			encArgs = append(encArgs, "-i", inputFile)
+			if vfString != "" {
+				encArgs = append(encArgs, "-vf", vfString)
+			}
+			encArgs = append(encArgs, "-c:v", "apng", "-plays", "0")
+			encArgs = append(encArgs, formatArgs...)
+			encArgs = append(encArgs, outputFile)
+			fullCmd := fmt.Sprintf("ffmpeg %s", strings.Join(encArgs, " "))
+			progressChan <- progressMsg{debugCmd: fullCmd}
+			if err := runFFmpeg(encArgs, progressChan, duration, "APNG Encode"); err != nil {
+				return workDoneMsg{err: err}
+			}
+			return finishWork(outputFile)
 		}
 
-		// video mode
+		// video & avif mode
 		hasAudio := false
 		for _, s := range info.Streams {
 			if s.CodecType == "audio" {
@@ -764,7 +876,7 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 		isCPU := hw == hwCPU
 
 		var audioArgs []string
-		if hasAudio {
+		if hasAudio && mode != modeAVIF {
 			if codecCfg.Ext == ".mp4" {
 				audioArgs = []string{"-c:a", "aac", "-b:a", "128k"}
 			} else {
@@ -783,6 +895,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 			passLog := filepath.Join(os.TempDir(), fmt.Sprintf("pass_%d", time.Now().UnixNano()))
 
 			extraArgs := []string{"-pix_fmt", "yuv420p"}
+			if mode == modeAVIF {
+				extraArgs = append(extraArgs, "-still-picture", "0")
+			}
 			switch codecCfg.FFmpegLib {
 			case "libvpx-vp9":
 				vp9Speeds := []string{"8", "7", "6", "4", "1"}
@@ -891,6 +1006,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 
 		} else {
 			extraArgs := []string{"-pix_fmt", "yuv420p"}
+			if mode == modeAVIF {
+				extraArgs = append(extraArgs, "-still-picture", "0")
+			}
 			hwQuality := 19 + int(float64(crfSlider)*1.5) // 19-34
 
 			if strings.Contains(codecCfg.FFmpegLib, "nvenc") {
@@ -1067,6 +1185,8 @@ func printHelp() {
 	fmt.Println("  teacrush [input_file] [flags]")
 	fmt.Println("\nFlags:")
 	fmt.Println("  -gif                Encode to GIF")
+	fmt.Println("  -apng               Encode to animated PNG")
+	fmt.Println("  -avif               Encode to animated AVIF")
 	fmt.Println("  -o [file]           Output file path")
 	fmt.Println("  -v                  Verbose mode (show command)")
 	fmt.Println("  -trim [start] [end] Trim video (e.g. -trim 00:01:00 00:02:00 or -trim 1s 5s)")
@@ -1074,18 +1194,33 @@ func printHelp() {
 }
 
 func main() {
-	isGif := false
+	outputMode := modeVideo
+	formatFlags := 0
 	for _, arg := range os.Args {
 		if arg == "-h" || arg == "--help" || arg == "?" {
 			printHelp()
 			os.Exit(0)
 		}
 		if arg == "-gif" {
-			isGif = true
+			outputMode = modeGIF
+			formatFlags++
+		}
+		if arg == "-apng" {
+			outputMode = modeAPNG
+			formatFlags++
+		}
+		if arg == "-avif" {
+			outputMode = modeAVIF
+			formatFlags++
 		}
 	}
 
-	p := tea.NewProgram(initialModel(isGif))
+	if formatFlags > 1 {
+		fmt.Println(errStyle.Render("Error: -gif, -apng, and -avif flags are mutually exclusive."))
+		os.Exit(1)
+	}
+
+	p := tea.NewProgram(initialModel(outputMode))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)

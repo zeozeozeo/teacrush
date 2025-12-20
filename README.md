@@ -29,6 +29,8 @@ Usage:
 
 Flags:
   -gif                Encode to GIF
+  -apng               Encode to animated PNG
+  -avif               Encode to animated AVIF
   -o [file]           Output file path
   -v                  Verbose mode (show command)
   -trim [start] [end] Trim video (e.g. -trim 00:01:00 00:02:00 or -trim 1s 5s)
