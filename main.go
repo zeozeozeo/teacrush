@@ -334,11 +334,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case stateSelectHW:
 			switch msg.String() {
-			case "up", "k":
+			case "up", "k", "w":
 				if m.selectedHW > 0 {
 					m.selectedHW--
 				}
-			case "down", "j":
+			case "down", "j", "s":
 				if m.selectedHW < len(hardwareOptions)-1 {
 					m.selectedHW++
 				}
@@ -361,11 +361,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			switch msg.String() {
-			case "up", "k":
+			case "up", "k", "w":
 				if m.selectedCodec > 0 {
 					m.selectedCodec--
 				}
-			case "down", "j":
+			case "down", "j", "s":
 				if m.selectedCodec < len(options)-1 {
 					m.selectedCodec++
 				}
