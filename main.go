@@ -788,7 +788,11 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 				nvPresets := []string{"p1", "p2", "p4", "p6", "p7"}
 				extraArgs = append(extraArgs, "-preset", nvPresets[quality], "-rc", "vbr", "-cq", "0")
 			} else if strings.Contains(codecCfg.FFmpegLib, "amf") {
-				extraArgs = append(extraArgs, "-quality", "quality")
+				amfPresets := []string{"speed", "speed", "balanced", "quality", "quality"}
+				if strings.Contains(codecCfg.FFmpegLib, "av1") {
+					amfPresets = []string{"speed", "balanced", "quality", "high_quality", "high_quality"}
+				}
+				extraArgs = append(extraArgs, "-quality", amfPresets[quality])
 			} else if strings.Contains(codecCfg.FFmpegLib, "qsv") {
 				qsvPresets := []string{"veryfast", "faster", "balanced", "slow", "veryslow"}
 				extraArgs = append(extraArgs, "-preset", qsvPresets[quality])

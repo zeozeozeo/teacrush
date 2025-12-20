@@ -34,3 +34,13 @@ Flags:
   -trim [start] [end] Trim video (e.g. -trim 00:01:00 00:02:00 or -trim 1s 5s)
   -h, --help, ?       Show this help message
 ```
+
+## Encoder preset mapping
+
+| Level        | SVT-AV1   | rav1e    | VP9     | AOM-AV1 | H.264 / H.265 | NVENC | AMF (H.264/HEVC) | AMF (AV1)    | QSV      |
+| :----------- | :-------- | :------- | :------ | :------ | :------------ | :---- | :--------------- | :----------- | :------- |
+| **Fastest**  | Preset 12 | Speed 10 | Speed 8 | CPU 8   | ultrafast     | p1    | speed            | speed        | veryfast |
+| **Faster**   | Preset 10 | Speed 8  | Speed 7 | CPU 7   | veryfast      | p2    | speed            | balanced     | faster   |
+| **Balanced** | Preset 8  | Speed 6  | Speed 6 | CPU 6   | faster        | p4    | balanced         | quality      | balanced |
+| **Better**   | Preset 6  | Speed 4  | Speed 4 | CPU 4   | medium        | p6    | quality          | high_quality | slow     |
+| **Best**     | Preset 4  | Speed 2  | Speed 1 | CPU 3   | veryslow      | p7    | quality          | high_quality | veryslow |
