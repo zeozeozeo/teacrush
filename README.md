@@ -22,6 +22,8 @@ go install github.com/zeozeozeo/teacrush@latest
 
 You can use Teacrush through the terminal or by creating a desktop shortcut you can simply drag the videos you want to compress on top of it (on Windows, at least)
 
+The TUI includes draggable trim and crop editors with inline frame previews. In the trim editor, drag the range slider handles with the mouse, or use Left/Right to move the active trim handle, PgUp/PgDn to jump farther, Tab to switch between start and end, R to reset the range, and Enter to continue. In the crop editor, drag inside the crop box to move it, drag one of the corner or side-center handles to resize, or use arrows to move and Shift/Ctrl+arrows to resize. Q makes a square crop, R resets, N disables crop, and Enter continues. The preview scales up to fit the terminal and uses higher-quality Lanczos sampling.
+
 ```
 $ teacrush -h
 Teacrush
@@ -36,6 +38,7 @@ Flags:
   -o [file]           Output file path
   -v                  Verbose mode (show command)
   -trim [start] [end] Trim video (e.g. -trim 00:01:00 00:02:00 or -trim 1s 5s)
+  -crop [crop]        Crop video (square, 1280x720, 1280x720+0+0, or crop=W:H:X:Y)
   -h, --help, ?       Show this help message
 ```
 
