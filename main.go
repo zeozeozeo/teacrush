@@ -254,6 +254,10 @@ type model struct {
 	suggestionIdx int
 }
 
+func setTerminalProgress(state int, progress int) {
+	fmt.Fprintf(os.Stdout, "\x1b]9;4;%d;%d\x1b\\", state, progress)
+}
+
 func initialModel(mode outputMode) model {
 	ti := textinput.New()
 	ti.CharLimit = 1000
@@ -361,6 +365,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
+			setTerminalProgress(0, 0)
 			return m, tea.Quit
 		}
 
@@ -603,6 +608,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				m.state = stateProcessing
 				m.progressChan = make(chan progressMsg)
+				setTerminalProgress(1, 0)
 
 				return m, tea.Batch(
 					m.spinner.Tick,
@@ -616,6 +622,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentLog = msg.line
 		if msg.progress > 0 {
 			m.percent = msg.progress
+			pct := int(math.Round(m.percent * 100))
+			setTerminalProgress(1, pct)
+		} else if m.percent == 0 {
+			setTerminalProgress(1, 0)
 		}
 		if msg.debugCmd != "" {
 			m.currentCmd = msg.debugCmd
@@ -626,10 +636,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.state = stateError
 			m.err = msg.err
+			setTerminalProgress(2, 100)
 		} else {
 			m.state = stateDone
 			m.outputFile = msg.outputFile
 			m.finalSize = msg.finalSize
+			setTerminalProgress(0, 0)
 		}
 		return m, tea.Quit
 
@@ -1430,6 +1442,7 @@ func (m model) startAfterCrop() (tea.Model, tea.Cmd) {
 		case modeAPNG:
 			codecCfg = codecInfo{Name: "APNG", Ext: ".png"}
 		}
+		setTerminalProgress(1, 0)
 
 		return m, tea.Batch(
 			m.spinner.Tick,
@@ -2367,6 +2380,8 @@ func printHelp() {
 }
 
 func main() {
+	defer setTerminalProgress(0, 0)
+
 	outputMode := modeVideo
 	formatFlags := 0
 	for _, arg := range os.Args {
