@@ -1289,7 +1289,7 @@ func (m model) setSquareCrop() model {
 	if m.videoWidth <= 0 || m.videoHeight <= 0 {
 		return m
 	}
-	side := minInt(m.videoWidth, m.videoHeight)
+	side := min(m.videoWidth, m.videoHeight)
 	m.cropEnabled = true
 	m.cropW = side
 	m.cropH = side
@@ -1302,8 +1302,8 @@ func (m model) moveCrop(dx int, dy int) model {
 	if !m.cropEnabled {
 		m.cropEnabled = true
 	}
-	m.cropX = clampInt(m.cropX+dx, 0, maxInt(0, m.videoWidth-m.cropW))
-	m.cropY = clampInt(m.cropY+dy, 0, maxInt(0, m.videoHeight-m.cropH))
+	m.cropX = clampInt(m.cropX+dx, 0, max(0, m.videoWidth-m.cropW))
+	m.cropY = clampInt(m.cropY+dy, 0, max(0, m.videoHeight-m.cropH))
 	return m.commitCropSelection()
 }
 
@@ -1311,8 +1311,8 @@ func (m model) resizeCrop(dw int, dh int) model {
 	if !m.cropEnabled {
 		m.cropEnabled = true
 	}
-	m.cropW = clampInt(m.cropW+dw, 2, maxInt(2, m.videoWidth-m.cropX))
-	m.cropH = clampInt(m.cropH+dh, 2, maxInt(2, m.videoHeight-m.cropY))
+	m.cropW = clampInt(m.cropW+dw, 2, max(2, m.videoWidth-m.cropX))
+	m.cropH = clampInt(m.cropH+dh, 2, max(2, m.videoHeight-m.cropY))
 	return m.commitCropSelection()
 }
 
@@ -1328,8 +1328,8 @@ func (m model) dragCropTo(mouseX int, mouseY int) model {
 
 	switch m.cropDragMode {
 	case cropDragMove:
-		x = clampInt(x+dx, 0, maxInt(0, m.videoWidth-w))
-		y = clampInt(y+dy, 0, maxInt(0, m.videoHeight-h))
+		x = clampInt(x+dx, 0, max(0, m.videoWidth-w))
+		y = clampInt(y+dy, 0, max(0, m.videoHeight-h))
 	case cropDragLeft, cropDragTopLeft, cropDragBottomLeft:
 		newX := clampInt(x+dx, 0, x+w-2)
 		w += x - newX
@@ -1351,10 +1351,10 @@ func (m model) dragCropTo(mouseX int, mouseY int) model {
 	}
 
 	m.cropEnabled = true
-	m.cropX = clampInt(x, 0, maxInt(0, m.videoWidth-2))
-	m.cropY = clampInt(y, 0, maxInt(0, m.videoHeight-2))
-	m.cropW = clampInt(w, 2, maxInt(2, m.videoWidth-m.cropX))
-	m.cropH = clampInt(h, 2, maxInt(2, m.videoHeight-m.cropY))
+	m.cropX = clampInt(x, 0, max(0, m.videoWidth-2))
+	m.cropY = clampInt(y, 0, max(0, m.videoHeight-2))
+	m.cropW = clampInt(w, 2, max(2, m.videoWidth-m.cropX))
+	m.cropH = clampInt(h, 2, max(2, m.videoHeight-m.cropY))
 	return m
 }
 
@@ -1363,10 +1363,10 @@ func (m model) commitCropSelection() model {
 		m.cropInput = ""
 		return m
 	}
-	m.cropX = clampInt(m.cropX, 0, maxInt(0, m.videoWidth-2))
-	m.cropY = clampInt(m.cropY, 0, maxInt(0, m.videoHeight-2))
-	m.cropW = evenInt(clampInt(m.cropW, 2, maxInt(2, m.videoWidth-m.cropX)))
-	m.cropH = evenInt(clampInt(m.cropH, 2, maxInt(2, m.videoHeight-m.cropY)))
+	m.cropX = clampInt(m.cropX, 0, max(0, m.videoWidth-2))
+	m.cropY = clampInt(m.cropY, 0, max(0, m.videoHeight-2))
+	m.cropW = evenInt(clampInt(m.cropW, 2, max(2, m.videoWidth-m.cropX)))
+	m.cropH = evenInt(clampInt(m.cropH, 2, max(2, m.videoHeight-m.cropY)))
 	if m.cropX == 0 && m.cropY == 0 && m.cropW >= evenInt(m.videoWidth) && m.cropH >= evenInt(m.videoHeight) {
 		m.cropInput = ""
 		return m
@@ -1391,8 +1391,8 @@ func (m model) cropPreviewOverlay() previewOverlay {
 	y := int(math.Round(float64(m.cropY) / float64(m.videoHeight) * float64(m.previewHeight)))
 	w := int(math.Round(float64(m.cropW) / float64(m.videoWidth) * float64(m.previewWidth)))
 	h := int(math.Round(float64(m.cropH) / float64(m.videoHeight) * float64(m.previewHeight)))
-	x = clampInt(x, 0, maxInt(0, m.previewWidth-2))
-	y = clampInt(y, 0, maxInt(0, m.previewHeight-2))
+	x = clampInt(x, 0, max(0, m.previewWidth-2))
+	y = clampInt(y, 0, max(0, m.previewHeight-2))
 	w = clampInt(w, 2, m.previewWidth-x)
 	h = clampInt(h, 2, m.previewHeight-y)
 	return previewOverlay{x: x, y: y, w: w, h: h, sourceWidth: m.videoWidth, sourceHeight: m.videoHeight, dimOutside: true}
@@ -1417,16 +1417,16 @@ func (m model) cropStepY(big bool) int {
 func (m model) cropStepForAxis(big bool, previewSize int, sourceSize int, cells int, divisor int) int {
 	if previewSize > 0 && sourceSize > 0 {
 		step := previewDeltaToSource(cells, previewSize, sourceSize)
-		step = maxInt(2, step/divisor)
+		step = max(2, step/divisor)
 		if big {
 			step *= 5
 		}
-		return evenInt(maxInt(2, step))
+		return evenInt(max(2, step))
 	}
 
-	base := maxInt(2, minInt(m.videoWidth, m.videoHeight)/100)
+	base := max(2, min(m.videoWidth, m.videoHeight)/100)
 	if big {
-		base = maxInt(12, minInt(m.videoWidth, m.videoHeight)/25)
+		base = max(12, min(m.videoWidth, m.videoHeight)/25)
 	}
 	return evenInt(base)
 }
@@ -1585,20 +1585,6 @@ func clampInt(value, min, max int) int {
 	return value
 }
 
-func minInt(a int, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxInt(a int, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func evenInt(value int) int {
 	if value < 2 {
 		return 2
@@ -1606,7 +1592,7 @@ func evenInt(value int) int {
 	if value%2 != 0 {
 		value--
 	}
-	return maxInt(2, value)
+	return max(2, value)
 }
 
 func previewDeltaToSource(delta int, previewSize int, sourceSize int) int {
@@ -1829,10 +1815,10 @@ func parseCropInput(input string, videoWidth int, videoHeight int) (cropRect, bo
 		return cropRect{}, false
 	}
 	return cropRect{
-		x: clampInt(values[2], 0, maxInt(0, videoWidth-2)),
-		y: clampInt(values[3], 0, maxInt(0, videoHeight-2)),
-		w: evenInt(clampInt(values[0], 2, maxInt(2, videoWidth-values[2]))),
-		h: evenInt(clampInt(values[1], 2, maxInt(2, videoHeight-values[3]))),
+		x: clampInt(values[2], 0, max(0, videoWidth-2)),
+		y: clampInt(values[3], 0, max(0, videoHeight-2)),
+		w: evenInt(clampInt(values[0], 2, max(2, videoWidth-values[2]))),
+		h: evenInt(clampInt(values[1], 2, max(2, videoHeight-values[3]))),
 	}, true
 }
 
