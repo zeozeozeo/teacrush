@@ -1693,6 +1693,29 @@ func parseDuration(s string) float64 {
 	return sec
 }
 
+func buildTrimOutputArgs(trimStart, trimEnd string) ([]string, error) {
+	if trimStart == "" && trimEnd == "" {
+		return nil, nil
+	}
+	if trimStart == "" || trimEnd == "" {
+		return nil, fmt.Errorf("trim requires both start and end")
+	}
+
+	start, err := parseDurationStrict(trimStart)
+	if err != nil {
+		return nil, err
+	}
+	end, err := parseDurationStrict(trimEnd)
+	if err != nil {
+		return nil, err
+	}
+	if end <= start {
+		return nil, fmt.Errorf("trim end must be after trim start")
+	}
+
+	return []string{"-ss", trimStart, "-t", formatDuration(end - start)}, nil
+}
+
 func parseDurationStrict(s string) (float64, error) {
 	s = strings.TrimSpace(strings.TrimSuffix(s, "s"))
 	if s == "" {
@@ -1908,9 +1931,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 
 		vfString := strings.Join(vfFilters, ",")
 
-		trimArgs := []string{}
-		if trimStart != "" && trimEnd != "" {
-			trimArgs = []string{"-ss", trimStart, "-to", trimEnd}
+		trimArgs, err := buildTrimOutputArgs(trimStart, trimEnd)
+		if err != nil {
+			return workDoneMsg{err: err}
 		}
 
 		switch mode {
@@ -1940,9 +1963,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 				palFilter += ","
 			}
 			palFilter += "palettegen"
-			palArgs := []string{"-y"}
+			palArgs := []string{"-y", "-i", inputFile}
 			palArgs = append(palArgs, trimArgs...)
-			palArgs = append(palArgs, "-i", inputFile, "-vf", palFilter, paletteFile)
+			palArgs = append(palArgs, "-vf", palFilter, paletteFile)
 
 			if err := runFFmpeg(palArgs, progressChan, duration, "GIF Palette"); err != nil {
 				return workDoneMsg{err: err}
@@ -1956,11 +1979,11 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 			}
 
 			encArgs := []string{"-y"}
-			encArgs = append(encArgs, trimArgs...)
 			encArgs = append(encArgs,
 				"-i", inputFile, "-i", paletteFile,
 				"-lavfi", filterComplex,
 			)
+			encArgs = append(encArgs, trimArgs...)
 			encArgs = append(encArgs, formatArgs...)
 			encArgs = append(encArgs, outputFile)
 
@@ -1987,9 +2010,8 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 				apngVf = append(apngVf, fmt.Sprintf("fps=%s", fpsInput))
 			}
 			vfString := strings.Join(apngVf, ",")
-			encArgs := []string{"-y"}
+			encArgs := []string{"-y", "-i", inputFile}
 			encArgs = append(encArgs, trimArgs...)
-			encArgs = append(encArgs, "-i", inputFile)
 			if vfString != "" {
 				encArgs = append(encArgs, "-vf", vfString)
 			}
@@ -2104,9 +2126,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 
 			if isCRFMode {
 				// single pass (CRF)
-				args := []string{"-y"}
+				args := []string{"-y", "-i", inputFile}
 				args = append(args, trimArgs...)
-				args = append(args, "-i", inputFile, "-c:v", codecCfg.FFmpegLib)
+				args = append(args, "-c:v", codecCfg.FFmpegLib)
 				args = append(args, extraArgs...)
 				args = append(args, filterArgs...)
 				args = append(args, audioArgs...)
@@ -2126,9 +2148,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 				}
 
 				// pass 1
-				p1 := []string{"-y"}
+				p1 := []string{"-y", "-i", inputFile}
 				p1 = append(p1, trimArgs...)
-				p1 = append(p1, "-i", inputFile, "-c:v", codecCfg.FFmpegLib, "-b:v", fmt.Sprintf("%dk", videoKBit), "-pass", "1", "-passlogfile", passLog, "-an")
+				p1 = append(p1, "-c:v", codecCfg.FFmpegLib, "-b:v", fmt.Sprintf("%dk", videoKBit), "-pass", "1", "-passlogfile", passLog, "-an")
 				p1 = append(p1, filterArgs...)
 				p1 = append(p1, extraArgs...)
 				p1 = append(p1, "-f", "null", nullOut)
@@ -2141,9 +2163,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 				}
 
 				// pass 2
-				p2 := []string{"-y"}
+				p2 := []string{"-y", "-i", inputFile}
 				p2 = append(p2, trimArgs...)
-				p2 = append(p2, "-i", inputFile, "-c:v", codecCfg.FFmpegLib, "-b:v", fmt.Sprintf("%dk", videoKBit), "-pass", "2", "-passlogfile", passLog)
+				p2 = append(p2, "-c:v", codecCfg.FFmpegLib, "-b:v", fmt.Sprintf("%dk", videoKBit), "-pass", "2", "-passlogfile", passLog)
 				p2 = append(p2, filterArgs...)
 				p2 = append(p2, extraArgs...)
 				p2 = append(p2, audioArgs...)
@@ -2193,9 +2215,9 @@ func startEncoding(inputFile string, targetMB float64, resInput string, fpsInput
 				}
 			}
 
-			cmdArgs := []string{"-y", "-hwaccel", "auto"}
+			cmdArgs := []string{"-y", "-hwaccel", "auto", "-i", inputFile}
 			cmdArgs = append(cmdArgs, trimArgs...)
-			cmdArgs = append(cmdArgs, "-i", inputFile, "-c:v", codecCfg.FFmpegLib)
+			cmdArgs = append(cmdArgs, "-c:v", codecCfg.FFmpegLib)
 			if !isCRFMode {
 				cmdArgs = append(cmdArgs,
 					"-b:v", fmt.Sprintf("%dk", videoKBit),
