@@ -12,6 +12,30 @@ You need [FFmpeg](https://www.ffmpeg.org/download.html) installed for this to wo
 
 ## Installation
 
+### Pre-built nightly binaries
+
+Pre-built binaries are published for Linux, macOS, and Windows. These installers do not require Go and can also be run again to update to the latest nightly build.
+
+On Linux or macOS, run:
+
+```console
+curl -fsSL https://github.com/zeozeozeo/teacrush/releases/download/nightly/install.sh | sh
+```
+
+This installs to `~/.local/bin`. Add that directory to `PATH` if it is not already there. To install for all users instead, set `TEACRUSH_INSTALL_DIR` to a system-wide bin directory such as `/usr/local/bin` and run the command with the permissions required by that directory.
+
+On Windows PowerShell, run:
+
+```powershell
+irm https://github.com/zeozeozeo/teacrush/releases/download/nightly/install.ps1 | iex
+```
+
+This installs to `%LOCALAPPDATA%\Programs\teacrush` and adds that directory to the user `PATH`. Run the same command again to update it.
+
+The release also contains archives and a `SHA256SUMS` file for manual installation. Every push updates the moving `nightly` tag and release.
+
+### Install from source
+
 Install [Go](https://go.dev/dl/) if you haven't already.
 
 ```console
@@ -21,8 +45,6 @@ go install github.com/zeozeozeo/teacrush@latest
 ## Usage
 
 You can use Teacrush through the terminal or by creating a desktop shortcut you can simply drag the videos you want to compress on top of it (on Windows, at least)
-
-The TUI includes draggable trim and crop editors with inline frame previews. In the trim editor, drag the range slider handles with the mouse, or use Left/Right to move the active trim handle, PgUp/PgDn to jump farther, Tab to switch between start and end, R to reset the range, and Enter to continue. In the crop editor, drag inside the crop box to move it, drag one of the corner or side-center handles to resize, or use arrows to move and Shift/Ctrl+arrows to resize. Q makes a square crop, R resets, N disables crop, and Enter continues. The preview scales up to fit the terminal and uses higher-quality Lanczos sampling.
 
 ```
 $ teacrush -h

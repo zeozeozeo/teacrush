@@ -1,0 +1,135 @@
+name: Nightly release
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive: teacrush-nightly-linux-amd64.tar.gz
+          - goos: linux
+            goarch: arm64
+            archive: teacrush-nightly-linux-arm64.tar.gz
+          - goos: darwin
+            goarch: amd64
+            archive: teacrush-nightly-darwin-amd64.tar.gz
+          - goos: darwin
+            goarch: arm64
+            archive: teacrush-nightly-darwin-arm64.tar.gz
+          - goos: windows
+            goarch: amd64
+            archive: teacrush-nightly-windows-amd64.zip
+          - goos: windows
+            goarch: arm64
+            archive: teacrush-nightly-windows-arm64.zip
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          output="dist/teacrush"
+          if [ "$GOOS" = "windows" ]; then
+            output="$output.exe"
+          fi
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$output" .
+
+      - name: Package binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          ARCHIVE: ${{ matrix.archive }}
+        run: |
+          set -euo pipefail
+          if [ "$GOOS" = "windows" ]; then
+            zip -j "dist/$ARCHIVE" dist/teacrush.exe
+          else
+            tar -C dist -czf "dist/$ARCHIVE" teacrush
+          fi
+          rm -f dist/teacrush dist/teacrush.exe
+
+      - name: Upload packaged binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: dist/${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish nightly release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download packaged binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Add installers and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp install.sh install.ps1 dist/
+          (cd dist && sha256sum teacrush-nightly-* > SHA256SUMS)
+
+      - name: Move nightly tag to this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag -f nightly "$GITHUB_SHA"
+          git push origin refs/tags/nightly --force
+
+      - name: Create or update nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="Teacrush nightly ($GITHUB_SHA)"
+          notes="Automated build of commit $GITHUB_SHA. This release is updated on every push."
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly --title "$title" --notes "$notes" --prerelease
+            gh release upload nightly dist/* --clobber
+          else
+            gh release create nightly dist/* --title "$title" --notes "$notes" --prerelease --target "$GITHUB_SHA"
+          fi
