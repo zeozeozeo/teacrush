@@ -2,15 +2,27 @@ $ErrorActionPreference = 'Stop'
 
 $repo = if ($env:TEACRUSH_REPO) { $env:TEACRUSH_REPO } else { 'zeozeozeo/teacrush' }
 $tag = if ($env:TEACRUSH_TAG) { $env:TEACRUSH_TAG } else { 'nightly' }
-$installDir = if ($env:TEACRUSH_INSTALL_DIR) {
-    $env:TEACRUSH_INSTALL_DIR
-} else {
-    Join-Path $env:LOCALAPPDATA 'Programs\teacrush'
+$installDir = $env:TEACRUSH_INSTALL_DIR
+if ([string]::IsNullOrWhiteSpace($installDir)) {
+    $localAppData = [Environment]::GetEnvironmentVariable('LOCALAPPDATA')
+    if ([string]::IsNullOrWhiteSpace($localAppData)) {
+        $localAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+    }
+    if ([string]::IsNullOrWhiteSpace($localAppData)) {
+        throw 'Could not determine the Windows local application data directory'
+    }
+    $installDir = Join-Path $localAppData 'Programs\teacrush'
 }
 
-$architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-switch ($architecture) {
-    'X64'   { $arch = 'amd64' }
+$architecture = $env:PROCESSOR_ARCHITEW6432
+if ([string]::IsNullOrWhiteSpace($architecture)) {
+    $architecture = $env:PROCESSOR_ARCHITECTURE
+}
+if ([string]::IsNullOrWhiteSpace($architecture)) {
+    throw 'Could not determine the Windows processor architecture'
+}
+switch ($architecture.ToUpperInvariant()) {
+    'AMD64' { $arch = 'amd64' }
     'ARM64' { $arch = 'arm64' }
     default { throw "Unsupported Windows architecture: $architecture" }
 }
@@ -27,11 +39,11 @@ try {
     Invoke-WebRequest -Uri "$baseUrl/$asset" -OutFile $archivePath
     Invoke-WebRequest -Uri "$baseUrl/SHA256SUMS" -OutFile $checksumsPath
 
-    $checksumLine = Get-Content $checksumsPath | Where-Object { $_ -match "\s$([regex]::Escape($asset))$" } | Select-Object -First 1
-    if (-not $checksumLine) { throw "Checksum for $asset was not found" }
-    $expected = ($checksumLine -split '\s+')[0].ToLowerInvariant()
-    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash.ToLowerInvariant()
-    if ($expected -ne $actual) { throw 'Checksum verification failed' }
+    $checksumLine = Get-Content -LiteralPath $checksumsPath | Where-Object { $_ -match "\s$([regex]::Escape($asset))$" } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace([string]$checksumLine)) { throw "Checksum for $asset was not found" }
+    $expected = [string](($checksumLine -split '\s+')[0])
+    $actual = [string](Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash
+    if (-not [string]::Equals($expected, $actual, [StringComparison]::OrdinalIgnoreCase)) { throw 'Checksum verification failed' }
 
     Expand-Archive -LiteralPath $archivePath -DestinationPath $temporaryDir -Force
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
@@ -39,7 +51,15 @@ try {
 
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $pathEntries = if ($userPath) { $userPath -split ';' | Where-Object { $_ } } else { @() }
-    if (-not ($pathEntries | Where-Object { $_.TrimEnd('\') -ieq $installDir.TrimEnd('\') })) {
+    $normalizedInstallDir = $installDir.TrimEnd('\')
+    $hasInstallPath = $false
+    foreach ($pathEntry in @($pathEntries)) {
+        if (-not [string]::IsNullOrWhiteSpace($pathEntry) -and [string]::Equals($pathEntry.TrimEnd('\'), $normalizedInstallDir, [StringComparison]::OrdinalIgnoreCase)) {
+            $hasInstallPath = $true
+            break
+        }
+    }
+    if (-not $hasInstallPath) {
         $newPath = (($pathEntries + $installDir) -join ';')
         [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
         Write-Host "Added $installDir to the user PATH. Open a new terminal to use it."
