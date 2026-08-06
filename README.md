@@ -32,7 +32,19 @@ irm https://github.com/zeozeozeo/teacrush/releases/download/nightly/install.ps1 
 
 This installs to `%LOCALAPPDATA%\Programs\teacrush` and adds that directory to the user `PATH`. Run the same command again to update it.
 
-The release also contains archives and a `SHA256SUMS` file for manual installation. Every push updates the moving `nightly` tag and release.
+To uninstall on Linux or macOS, run:
+
+```console
+curl -fsSL https://github.com/zeozeozeo/teacrush/releases/download/nightly/install.sh | sh -s -- uninstall
+```
+
+On Windows:
+
+```powershell
+$script = Join-Path $env:TEMP 'teacrush-install.ps1'; irm https://github.com/zeozeozeo/teacrush/releases/download/nightly/install.ps1 -OutFile $script; & $script -Uninstall; Remove-Item $script
+```
+
+The release also contains archives and a `SHA256SUMS` file for manual installation.
 
 ### Install from source
 

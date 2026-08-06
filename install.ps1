@@ -1,4 +1,12 @@
+param(
+    [switch]$Uninstall
+)
+
 $ErrorActionPreference = 'Stop'
+
+if ($env:TEACRUSH_UNINSTALL -eq '1') {
+    $Uninstall = $true
+}
 
 $repo = if ($env:TEACRUSH_REPO) { $env:TEACRUSH_REPO } else { 'zeozeozeo/teacrush' }
 $tag = if ($env:TEACRUSH_TAG) { $env:TEACRUSH_TAG } else { 'nightly' }
@@ -12,6 +20,35 @@ if ([string]::IsNullOrWhiteSpace($installDir)) {
         throw 'Could not determine the Windows local application data directory'
     }
     $installDir = Join-Path $localAppData 'Programs\teacrush'
+}
+
+if ($Uninstall) {
+    $binaryPath = Join-Path $installDir 'teacrush.exe'
+    if (Test-Path -LiteralPath $binaryPath) {
+        Remove-Item -LiteralPath $binaryPath -Force
+        Write-Host "Removed $binaryPath"
+    } else {
+        Write-Host "teacrush is not installed at $binaryPath"
+    }
+
+    if (Test-Path -LiteralPath $installDir -PathType Container) {
+        # This fails harmlessly when another file is present.
+        Remove-Item -LiteralPath $installDir -Force -ErrorAction SilentlyContinue
+    }
+
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $normalizedInstallDir = $installDir.TrimEnd('\')
+    $remainingPathEntries = @()
+    if (-not [string]::IsNullOrWhiteSpace($userPath)) {
+        foreach ($pathEntry in ($userPath -split ';')) {
+            if (-not [string]::IsNullOrWhiteSpace($pathEntry) -and -not [string]::Equals($pathEntry.Trim().TrimEnd('\'), $normalizedInstallDir, [StringComparison]::OrdinalIgnoreCase)) {
+                $remainingPathEntries += $pathEntry
+            }
+        }
+    }
+    [Environment]::SetEnvironmentVariable('Path', ($remainingPathEntries -join ';'), 'User')
+    Write-Host "Removed $installDir from the user PATH. Open a new terminal to apply the change."
+    return
 }
 
 $architecture = $env:PROCESSOR_ARCHITEW6432

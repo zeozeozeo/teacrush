@@ -5,11 +5,35 @@ set -eu
 repo="${TEACRUSH_REPO:-zeozeozeo/teacrush}"
 tag="${TEACRUSH_TAG:-nightly}"
 install_dir="${TEACRUSH_INSTALL_DIR:-$HOME/.local/bin}"
+action="${1:-install}"
 
 fail() {
     echo "teacrush: $*" >&2
     exit 1
 }
+
+case "$action" in
+    install)
+        ;;
+    uninstall|--uninstall)
+        binary="$install_dir/teacrush"
+        if [ -e "$binary" ]; then
+            rm -f "$binary"
+            echo "Removed $binary"
+        else
+            echo "teacrush is not installed at $binary"
+        fi
+        # rmdir only succeeds when the directory is empty, so other files are safe.
+        if [ -d "$install_dir" ]; then
+            rmdir "$install_dir" 2>/dev/null || true
+        fi
+        echo "No shell profiles were changed by this installer. Remove $install_dir from PATH manually if you added it."
+        exit 0
+        ;;
+    *)
+        fail "usage: $0 [uninstall|--uninstall]"
+        ;;
+esac
 
 if command -v curl >/dev/null 2>&1; then
     download() {
