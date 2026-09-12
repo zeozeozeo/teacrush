@@ -50,6 +50,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install aarch64 cross-compiler
+        if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu
+
       - name: Build binary
         shell: bash
         env:
@@ -62,7 +70,20 @@ jobs:
           if [ "$GOOS" = "windows" ]; then
             output="$output.exe"
           fi
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$output" .
+          if [ "$GOOS" = "linux" ]; then
+            # PIE + FULL RELRO via the external linker (native gcc on
+            # amd64, cross gcc on arm64, see step above).
+            export CGO_ENABLED=1
+            if [ "$GOARCH" = "arm64" ]; then
+              export CC=aarch64-linux-gnu-gcc
+            fi
+            go build -trimpath -buildmode=pie \
+              -ldflags="-s -w -linkmode=external -extldflags=-Wl,-O1,--sort-common,--as-needed,-z,relro,-z,now" \
+              -o "$output" .
+          else
+            # Darwin/Windows: Go emits PIE/ASLR binaries by default.
+            CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$output" .
+          fi
 
       - name: Package binary
         shell: bash
