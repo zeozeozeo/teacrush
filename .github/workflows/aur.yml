@@ -97,7 +97,16 @@ jobs:
           dir="packaging/aur/$PKG"
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
-          sed -i "s/^pkgver=.*/pkgver=$VER/; s/^pkgrel=.*/pkgrel=1/" "$dir/PKGBUILD"
+          # Bump pkgrel when republishing the same pkgver (e.g. packaging
+          # fixes); reset to 1 for a new upstream version.
+          oldver="$(grep '^pkgver=' "$dir/PKGBUILD" | head -1 | cut -d= -f2)"
+          oldrel="$(grep '^pkgrel=' "$dir/PKGBUILD" | head -1 | cut -d= -f2)"
+          if [ "$oldver" = "$VER" ]; then
+            newrel=$((oldrel + 1))
+          else
+            newrel=1
+          fi
+          sed -i "s/^pkgver=.*/pkgver=$VER/; s/^pkgrel=.*/pkgrel=$newrel/" "$dir/PKGBUILD"
           if [ "$PKG" = "teacrush" ]; then
             curl -fsSL "https://github.com/$REPO/archive/refs/tags/$TAG.tar.gz" -o "$tmp/src.tar.gz"
             sum="$(sha256sum "$tmp/src.tar.gz" | awk '{print $1}')"
