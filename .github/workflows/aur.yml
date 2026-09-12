@@ -8,9 +8,6 @@ on:
     paths:
       - 'packaging/aur/teacrush-git/**'
       - '.github/workflows/aur.yml'
-  schedule:
-    # Keep teacrush-git fresh weekly even without packaging changes.
-    - cron: '0 3 * * 1'
   workflow_dispatch:
     inputs:
       package:
