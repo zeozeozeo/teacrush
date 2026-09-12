@@ -1,0 +1,205 @@
+name: Publish to AUR
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/aur/teacrush-git/**'
+      - '.github/workflows/aur.yml'
+  schedule:
+    # Keep teacrush-git fresh weekly even without packaging changes.
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Which package to publish (stable = teacrush + teacrush-bin)'
+        required: false
+        default: 'all'
+        type: choice
+        options: [all, teacrush, teacrush-bin, teacrush-git]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur-publish
+  cancel-in-progress: false
+
+env:
+  AUR_HOST: aur.archlinux.org
+
+jobs:
+  publish-stable:
+    name: Publish ${{ matrix.pkgname }} to AUR
+    # Stable (non-prerelease) releases whose tag starts with v, e.g. v0.1.0.
+    # Nightly/prerelease tags are ignored on purpose: AUR needs immutable checksums.
+    if: >
+      github.event_name == 'release' &&
+      github.event.release.prerelease == false &&
+      startsWith(github.event.release.tag_name, 'v') ||
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.package == 'all' || inputs.package == 'teacrush' || inputs.package == 'teacrush-bin')
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkgname: [teacrush, teacrush-bin]
+    steps:
+      - name: Install tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Sy --noconfirm base-devel git openssh curl > /dev/null
+          useradd -m builder || true
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          else
+            tag="$(git describe --tags --abbrev=0 2>/dev/null || echo v0.1.0)"
+          fi
+          [ "${tag#v}" != "$tag" ] || { echo "tag must start with v, got $tag" >&2; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "ver=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip matrix entry when dispatch targets the other package
+        if: github.event_name == 'workflow_dispatch' && inputs.package != 'all' && inputs.package != matrix.pkgname
+        shell: bash
+        run: echo "Skipping ${{ matrix.pkgname }} (dispatch asked for ${{ inputs.package }})."
+
+      - name: Bump pkgver and refresh checksums
+        if: github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == matrix.pkgname
+        shell: bash
+        env:
+          PKG: ${{ matrix.pkgname }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VER: ${{ steps.ver.outputs.ver }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          dir="packaging/aur/$PKG"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          sed -i "s/^pkgver=.*/pkgver=$VER/; s/^pkgrel=.*/pkgrel=1/" "$dir/PKGBUILD"
+          if [ "$PKG" = "teacrush" ]; then
+            curl -fsSL "https://github.com/$REPO/archive/refs/tags/$TAG.tar.gz" -o "$tmp/src.tar.gz"
+            sum="$(sha256sum "$tmp/src.tar.gz" | awk '{print $1}')"
+            sed -i "s/^sha256sums=.*/sha256sums=('$sum')/" "$dir/PKGBUILD"
+          else
+            base="https://github.com/$REPO/releases/download/$TAG"
+            curl -fsSL "$base/teacrush-$TAG-linux-amd64.tar.gz" -o "$tmp/amd64.tar.gz"
+            curl -fsSL "$base/teacrush-$TAG-linux-arm64.tar.gz" -o "$tmp/arm64.tar.gz"
+            curl -fsSL "https://raw.githubusercontent.com/$REPO/refs/tags/$TAG/LICENSE" -o "$tmp/LICENSE"
+            sum_amd64="$(sha256sum "$tmp/amd64.tar.gz" | awk '{print $1}')"
+            sum_arm64="$(sha256sum "$tmp/arm64.tar.gz" | awk '{print $1}')"
+            sum_license="$(sha256sum "$tmp/LICENSE" | awk '{print $1}')"
+            sed -i "s/^sha256sums=.*/sha256sums=('$sum_license')/" "$dir/PKGBUILD"
+            sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('$sum_amd64')/" "$dir/PKGBUILD"
+            sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('$sum_arm64')/" "$dir/PKGBUILD"
+          fi
+          grep -n '^pkgver=\|^pkgrel=\|^sha256sums' "$dir/PKGBUILD"
+
+      - name: Regenerate .SRCINFO
+        if: github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == matrix.pkgname
+        shell: bash
+        env:
+          PKG: ${{ matrix.pkgname }}
+        run: |
+          set -euo pipefail
+          dir="packaging/aur/$PKG"
+          chown -R builder:builder "$dir"
+          su builder -c "cd '$PWD/$dir' && makepkg --printsrcinfo > .SRCINFO"
+          cat "$dir/.SRCINFO"
+
+      - name: Push to AUR
+        if: github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == matrix.pkgname
+        shell: bash
+        env:
+          PKG: ${{ matrix.pkgname }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "${AUR_SSH_KEY:-}" ] || { echo "Missing secrets.AUR_SSH_KEY" >&2; exit 1; }
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+          mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$AUR_SSH_KEY" > "$HOME/.ssh/aur" && chmod 600 "$HOME/.ssh/aur"
+          ssh-keyscan "$AUR_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          git clone "ssh://aur@$AUR_HOST/$PKG.git" "$work"
+          cp "packaging/aur/$PKG/PKGBUILD" "packaging/aur/$PKG/.SRCINFO" "$work/"
+          cd "$work"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "No changes to push for $PKG."
+            exit 0
+          fi
+          git commit -m "Update to $TAG"
+          git push origin master
+
+  publish-git:
+    name: Publish teacrush-git to AUR
+    if: >
+      github.event_name == 'push' || github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.package == 'all' || inputs.package == 'teacrush-git')
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Sy --noconfirm base-devel git openssh > /dev/null
+          useradd -m builder || true
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Regenerate .SRCINFO
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="packaging/aur/teacrush-git"
+          chown -R builder:builder "$dir"
+          su builder -c "cd '$PWD/$dir' && makepkg --printsrcinfo > .SRCINFO"
+          cat "$dir/.SRCINFO"
+
+      - name: Push to AUR
+        shell: bash
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "${AUR_SSH_KEY:-}" ] || { echo "Missing secrets.AUR_SSH_KEY" >&2; exit 1; }
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+          mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$AUR_SSH_KEY" > "$HOME/.ssh/aur" && chmod 600 "$HOME/.ssh/aur"
+          ssh-keyscan "$AUR_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          git clone "ssh://aur@$AUR_HOST/teacrush-git.git" "$work"
+          cp packaging/aur/teacrush-git/PKGBUILD packaging/aur/teacrush-git/.SRCINFO "$work/"
+          cd "$work"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "No changes to push for teacrush-git."
+            exit 0
+          fi
+          git commit -m "Update to ${{ github.sha }}"
+          git push origin master

@@ -46,6 +46,18 @@ $script = Join-Path $env:TEMP 'teacrush-install.ps1'; irm https://github.com/zeo
 
 The release also contains archives and a `SHA256SUMS` file for manual installation.
 
+### Arch Linux (AUR)
+
+Three packages are published to the [AUR](https://aur.archlinux.org/) and kept in sync with GitHub releases by CI:
+
+```console
+yay -S teacrush         # build from source (recommended)
+yay -S teacrush-bin     # prebuilt binary from the GitHub release
+yay -S teacrush-git     # latest git master
+```
+
+All three require `ffmpeg` (installed automatically as a dependency).
+
 ### Install from source
 
 Install [Go](https://go.dev/dl/) if you haven't already.

@@ -1,0 +1,119 @@
+name: Stable release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          output="dist/teacrush"
+          if [ "$GOOS" = "windows" ]; then
+            output="$output.exe"
+          fi
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$output" .
+
+      - name: Package binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          # GITHUB_REF_NAME is the tag, e.g. v0.1.0
+          tag="${GITHUB_REF_NAME:-local}"
+          base="teacrush-${tag}-${GOOS}-${GOARCH}"
+          if [ "$GOOS" = "windows" ]; then
+            zip -j "dist/${base}.zip" dist/teacrush.exe
+          else
+            tar -C dist -czf "dist/${base}.tar.gz" teacrush
+          fi
+          rm -f dist/teacrush dist/teacrush.exe
+
+      - name: Upload packaged binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/teacrush-*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish stable release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download packaged binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Add installers and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp install.sh install.ps1 dist/
+          (cd dist && sha256sum teacrush-* > SHA256SUMS)
+          ls -la dist/
+
+      - name: Create stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          title="Teacrush $tag"
+          notes="Stable release $tag."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* --title "$title" --notes "$notes" --target "$GITHUB_SHA"
+          fi
